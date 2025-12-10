@@ -2,8 +2,10 @@
 #include <string>
 #include <set>
 #include <vector>
+#include <filesystem>
 #include "tinyxml2.h"
 
+namespace fs = std::filesystem;
 using namespace tinyxml2;
 
 struct PortInfo {
@@ -19,12 +21,20 @@ struct PortInfo {
 };
 
 void printUsage(const char* programName) {
-    std::cout << "Usage: " << programName << " <path-to-server.xml>\n";
+    std::cout << "Usage: " << programName << " [path]\n";
     std::cout << "\nDescription:\n";
     std::cout << "  Parses Apache Tomcat server.xml configuration files and discovers\n";
     std::cout << "  all configured ports (server ports, connector ports, redirect ports).\n";
-    std::cout << "\nExample:\n";
-    std::cout << "  " << programName << " /path/to/tomcat/conf/server.xml\n";
+    std::cout << "\nArguments:\n";
+    std::cout << "  path    Optional. Can be:\n";
+    std::cout << "          - A direct path to a server.xml file\n";
+    std::cout << "          - A directory to search recursively for server.xml files\n";
+    std::cout << "          - If omitted, searches current directory for server.xml or conf/server.xml\n";
+    std::cout << "\nExamples:\n";
+    std::cout << "  " << programName << "                                    # Search current directory\n";
+    std::cout << "  " << programName << " server.xml                        # Parse specific file\n";
+    std::cout << "  " << programName << " /path/to/tomcat                   # Search directory recursively\n";
+    std::cout << "  " << programName << " /path/to/tomcat/conf/server.xml   # Parse specific file\n";
 }
 
 void parseServerPorts(XMLElement* element, std::set<PortInfo>& ports) {
@@ -85,53 +95,191 @@ void traverseXML(XMLElement* element, std::set<PortInfo>& ports) {
     }
 }
 
-int main(int argc, char* argv[]) {
-    // Check command line arguments
-    if (argc != 2) {
-        printUsage(argv[0]);
-        return 1;
+std::vector<std::string> findServerXmlFiles(const std::string& searchPath) {
+    std::vector<std::string> xmlFiles;
+    
+    try {
+        fs::path path(searchPath);
+        
+        // If path doesn't exist, return empty
+        if (!fs::exists(path)) {
+            return xmlFiles;
+        }
+        
+        // If it's a file and named server.xml, return it
+        if (fs::is_regular_file(path)) {
+            if (path.filename() == "server.xml") {
+                xmlFiles.push_back(path.string());
+            }
+            return xmlFiles;
+        }
+        
+        // If it's a directory, search recursively
+        if (fs::is_directory(path)) {
+            for (const auto& entry : fs::recursive_directory_iterator(path, fs::directory_options::skip_permission_denied)) {
+                try {
+                    if (entry.is_regular_file() && entry.path().filename() == "server.xml") {
+                        xmlFiles.push_back(entry.path().string());
+                    }
+                } catch (const fs::filesystem_error&) {
+                    // Skip files we can't access
+                    continue;
+                }
+            }
+        }
+    } catch (const fs::filesystem_error& e) {
+        std::cerr << "Error accessing path '" << searchPath << "': " << e.what() << "\n";
     }
     
-    std::string xmlFilePath = argv[1];
+    return xmlFiles;
+}
+
+std::vector<std::string> findServerXmlInCurrentDir() {
+    std::vector<std::string> xmlFiles;
     
-    // Load and parse XML file
+    // Check for server.xml in current directory
+    if (fs::exists("server.xml") && fs::is_regular_file("server.xml")) {
+        xmlFiles.push_back("server.xml");
+    }
+    
+    // Check for conf/server.xml
+    if (fs::exists("conf/server.xml") && fs::is_regular_file("conf/server.xml")) {
+        xmlFiles.push_back("conf/server.xml");
+    }
+    
+    return xmlFiles;
+}
+
+bool parseServerXmlFile(const std::string& xmlFilePath, std::set<PortInfo>& ports) {
     XMLDocument doc;
     XMLError error = doc.LoadFile(xmlFilePath.c_str());
     
     if (error != XML_SUCCESS) {
         std::cerr << "Error: Failed to load or parse file '" << xmlFilePath << "'\n";
         std::cerr << "Error code: " << error << "\n";
-        return 1;
+        return false;
     }
     
-    // Find all ports
-    std::set<PortInfo> ports;
     XMLElement* root = doc.RootElement();
-    
     if (!root) {
-        std::cerr << "Error: No root element found in XML file\n";
-        return 1;
+        std::cerr << "Error: No root element found in XML file '" << xmlFilePath << "'\n";
+        return false;
     }
     
     traverseXML(root, ports);
+    return true;
+}
+
+int main(int argc, char* argv[]) {
+    std::vector<std::string> xmlFiles;
     
-    // Display results
-    if (ports.empty()) {
-        std::cout << "No ports found in configuration file.\n";
-        return 0;
-    }
-    
-    std::cout << "Tomcat Ports Configuration:\n";
-    std::cout << "===========================\n\n";
-    
-    for (const auto& portInfo : ports) {
-        std::cout << "Port: " << portInfo.port << "\n";
-        std::cout << "  Type: " << portInfo.type << "\n";
-        std::cout << "  Protocol: " << portInfo.protocol << "\n";
+    // Determine which files to parse
+    if (argc == 1) {
+        // No arguments - search current directory for server.xml or conf/server.xml
+        xmlFiles = findServerXmlInCurrentDir();
+        
+        if (xmlFiles.empty()) {
+            std::cerr << "Error: No server.xml or conf/server.xml found in current directory.\n";
+            std::cerr << "Run with -h or --help for usage information.\n";
+            return 1;
+        }
+        
+        std::cout << "Found " << xmlFiles.size() << " server.xml file(s) in current directory:\n";
+        for (const auto& file : xmlFiles) {
+            std::cout << "  - " << file << "\n";
+        }
         std::cout << "\n";
+    } else if (argc == 2) {
+        std::string arg = argv[1];
+        
+        // Check for help flags
+        if (arg == "-h" || arg == "--help") {
+            printUsage(argv[0]);
+            return 0;
+        }
+        
+        // Check if argument is a file or directory
+        if (fs::exists(arg)) {
+            if (fs::is_regular_file(arg)) {
+                // Direct file path
+                xmlFiles.push_back(arg);
+            } else if (fs::is_directory(arg)) {
+                // Directory - search recursively
+                xmlFiles = findServerXmlFiles(arg);
+                
+                if (xmlFiles.empty()) {
+                    std::cerr << "Error: No server.xml files found in directory '" << arg << "'.\n";
+                    return 1;
+                }
+                
+                std::cout << "Found " << xmlFiles.size() << " server.xml file(s) in '" << arg << "':\n";
+                for (const auto& file : xmlFiles) {
+                    std::cout << "  - " << file << "\n";
+                }
+                std::cout << "\n";
+            }
+        } else {
+            std::cerr << "Error: Path '" << arg << "' does not exist.\n";
+            return 1;
+        }
+    } else {
+        printUsage(argv[0]);
+        return 1;
     }
     
-    std::cout << "Total ports found: " << ports.size() << "\n";
+    // Parse all found XML files
+    std::set<PortInfo> allPorts;
+    int filesProcessed = 0;
+    int filesWithErrors = 0;
     
-    return 0;
+    for (const auto& xmlFile : xmlFiles) {
+        std::set<PortInfo> ports;
+        
+        if (xmlFiles.size() > 1) {
+            std::cout << "Parsing: " << xmlFile << "\n";
+            std::cout << std::string(60, '-') << "\n";
+        }
+        
+        if (parseServerXmlFile(xmlFile, ports)) {
+            filesProcessed++;
+            
+            if (ports.empty()) {
+                std::cout << "No ports found in this configuration file.\n";
+            } else {
+                std::cout << "Tomcat Ports Configuration:\n";
+                std::cout << "===========================\n\n";
+                
+                for (const auto& portInfo : ports) {
+                    std::cout << "Port: " << portInfo.port << "\n";
+                    std::cout << "  Type: " << portInfo.type << "\n";
+                    std::cout << "  Protocol: " << portInfo.protocol << "\n";
+                    std::cout << "\n";
+                    
+                    // Add to all ports collection
+                    allPorts.insert(portInfo);
+                }
+                
+                std::cout << "Total ports in this file: " << ports.size() << "\n";
+            }
+        } else {
+            filesWithErrors++;
+        }
+        
+        if (xmlFiles.size() > 1) {
+            std::cout << "\n";
+        }
+    }
+    
+    // Summary if multiple files
+    if (xmlFiles.size() > 1) {
+        std::cout << std::string(60, '=') << "\n";
+        std::cout << "Summary:\n";
+        std::cout << "  Files processed: " << filesProcessed << "/" << xmlFiles.size() << "\n";
+        if (filesWithErrors > 0) {
+            std::cout << "  Files with errors: " << filesWithErrors << "\n";
+        }
+        std::cout << "  Unique ports found across all files: " << allPorts.size() << "\n";
+    }
+    
+    return filesWithErrors > 0 ? 1 : 0;
 }

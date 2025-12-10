@@ -4,13 +4,16 @@ A small CLI tool written in C++ to parse Apache Tomcat server.xml configuration 
 
 ## Features
 
-- Parses Apache Tomcat `server.xml` configuration files
-- Discovers all configured ports:
+- **Automatic Discovery**: 
+  - Searches current directory for `server.xml` or `conf/server.xml`
+  - Recursively walks directories to find all server.xml files
+- **Port Discovery**: Discovers all configured ports:
   - **Server ports**: The shutdown port configured in the `<Server>` element
   - **Connector ports**: HTTP, HTTPS, AJP connector ports
   - **Redirect ports**: Ports used for redirecting traffic (e.g., HTTP to HTTPS)
-- Simple command-line interface
-- Fast and lightweight with no external dependencies
+- **Multi-file Support**: Can process multiple server.xml files in one run
+- **Simple CLI**: Easy-to-use command-line interface with optional arguments
+- **Fast and Lightweight**: No external dependencies, built with C++17
 
 ## Building
 
@@ -33,21 +36,36 @@ This will create the `tomport` executable in the `build` directory.
 ## Usage
 
 ```bash
-tomport <path-to-server.xml>
+tomport [path]
 ```
 
-### Example
+The tool supports three modes of operation:
+
+1. **No arguments**: Automatically searches for `server.xml` or `conf/server.xml` in the current directory
+2. **File path**: Parse a specific server.xml file
+3. **Directory path**: Recursively search a directory for all server.xml files
+
+### Examples
 
 ```bash
-# Using the sample configuration file
-./build/tomport sample-server.xml
+# Search current directory for server.xml or conf/server.xml
+./build/tomport
 
-# Using a real Tomcat installation
+# Parse a specific file
+./build/tomport sample-server.xml
 ./build/tomport /opt/tomcat/conf/server.xml
+
+# Recursively search a directory for all server.xml files
+./build/tomport /opt/tomcat
+./build/tomport /var/lib/tomcat-instances
+
+# Show help
+./build/tomport --help
 ```
 
-### Output Example
+### Output Examples
 
+**Single file:**
 ```
 Tomcat Ports Configuration:
 ===========================
@@ -68,7 +86,49 @@ Port: 8443
   Type: Redirect
   Protocol: HTTP/1.1 redirect
 
-Total ports found: 4
+Total ports in this file: 4
+```
+
+**Multiple files (recursive search):**
+```
+Found 2 server.xml file(s) in '/opt/tomcat-instances':
+  - /opt/tomcat-instances/instance1/conf/server.xml
+  - /opt/tomcat-instances/instance2/conf/server.xml
+
+Parsing: /opt/tomcat-instances/instance1/conf/server.xml
+------------------------------------------------------------
+Tomcat Ports Configuration:
+===========================
+
+Port: 8005
+  Type: Server
+  Protocol: Shutdown
+
+Port: 8080
+  Type: Connector
+  Protocol: HTTP/1.1
+
+Total ports in this file: 2
+
+Parsing: /opt/tomcat-instances/instance2/conf/server.xml
+------------------------------------------------------------
+Tomcat Ports Configuration:
+===========================
+
+Port: 9005
+  Type: Server
+  Protocol: Shutdown
+
+Port: 9080
+  Type: Connector
+  Protocol: HTTP/1.1
+
+Total ports in this file: 2
+
+============================================================
+Summary:
+  Files processed: 2/2
+  Unique ports found across all files: 4
 ```
 
 ## Sample Configuration
