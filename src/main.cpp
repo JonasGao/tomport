@@ -116,21 +116,28 @@ std::vector<std::string> findServerXmlFiles(const std::string& searchPath, int m
         
         // If it's a directory, search recursively with depth limit
         if (fs::is_directory(path)) {
+            fs::path basePath = fs::absolute(path);
+            size_t baseDepth = std::distance(basePath.begin(), basePath.end());
+            
+            // Skip symlinks to avoid potential loops
             for (const auto& entry : fs::recursive_directory_iterator(
                 path, 
-                fs::directory_options::skip_permission_denied | fs::directory_options::follow_directory_symlink)) {
+                fs::directory_options::skip_permission_denied)) {
                 try {
                     // Check depth to prevent excessive recursion
-                    int depth = std::distance(path.begin(), entry.path().begin());
-                    if (depth > maxDepth) {
+                    fs::path currentPath = fs::absolute(entry.path());
+                    size_t currentDepth = std::distance(currentPath.begin(), currentPath.end());
+                    int relativeDepth = currentDepth - baseDepth;
+                    
+                    if (relativeDepth > maxDepth) {
                         continue;
                     }
                     
                     if (entry.is_regular_file() && entry.path().filename() == "server.xml") {
                         xmlFiles.push_back(entry.path().string());
                     }
-                } catch (const fs::filesystem_error& e) {
-                    // Log skipped files in verbose mode (for now, silently skip)
+                } catch (const fs::filesystem_error&) {
+                    // Skip files/directories we can't access
                     continue;
                 }
             }
