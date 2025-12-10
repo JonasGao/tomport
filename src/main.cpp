@@ -119,7 +119,8 @@ std::vector<std::string> findServerXmlFiles(const std::string& searchPath, int m
             fs::path basePath = fs::absolute(path);
             size_t baseDepth = std::distance(basePath.begin(), basePath.end());
             
-            // Skip symlinks to avoid potential loops
+            // By default, recursive_directory_iterator does not follow symlinks (avoids loops)
+            // We only skip permission denied to continue traversal
             for (const auto& entry : fs::recursive_directory_iterator(
                 path, 
                 fs::directory_options::skip_permission_denied)) {
@@ -127,8 +128,13 @@ std::vector<std::string> findServerXmlFiles(const std::string& searchPath, int m
                     // Check depth to prevent excessive recursion
                     fs::path currentPath = fs::absolute(entry.path());
                     size_t currentDepth = std::distance(currentPath.begin(), currentPath.end());
-                    int relativeDepth = currentDepth - baseDepth;
                     
+                    // Bounds check to prevent underflow
+                    if (currentDepth < baseDepth) {
+                        continue;
+                    }
+                    
+                    int relativeDepth = static_cast<int>(currentDepth - baseDepth);
                     if (relativeDepth > maxDepth) {
                         continue;
                     }
