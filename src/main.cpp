@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <set>
+#include <unordered_set>
 #include <vector>
 #include <map>
 #include <iomanip>
@@ -317,8 +318,8 @@ void outputSimpleMode(const std::vector<ServerConfig>& configs) {
             std::cout << "# " << config.filePath << "\n";
         }
         
-        // Track unique ports to avoid duplicates
-        std::set<std::string> printedPorts;
+        // Track unique ports to avoid duplicates (using unordered_set for O(1) lookup)
+        std::unordered_set<std::string> printedPorts;
         
         // Print server port first
         if (!config.serverPort.empty()) {
