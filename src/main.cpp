@@ -317,17 +317,25 @@ void outputSimpleMode(const std::vector<ServerConfig>& configs) {
             std::cout << "# " << config.filePath << "\n";
         }
         
+        // Track unique ports to avoid duplicates
+        std::set<std::string> printedPorts;
+        
         // Print server port first
         if (!config.serverPort.empty()) {
             std::cout << config.serverPort << "\n";
+            printedPorts.insert(config.serverPort);
         }
         
-        // Then print connector ports and redirect ports
+        // Then print connector ports and redirect ports (avoiding duplicates)
         for (const auto& service : config.services) {
             for (const auto& conn : service.connectors) {
-                std::cout << conn.port << "\n";
-                if (!conn.redirectPort.empty()) {
+                if (printedPorts.find(conn.port) == printedPorts.end()) {
+                    std::cout << conn.port << "\n";
+                    printedPorts.insert(conn.port);
+                }
+                if (!conn.redirectPort.empty() && printedPorts.find(conn.redirectPort) == printedPorts.end()) {
                     std::cout << conn.redirectPort << "\n";
+                    printedPorts.insert(conn.redirectPort);
                 }
             }
         }
@@ -348,18 +356,19 @@ void outputTableMode(const std::vector<ServerConfig>& configs) {
               << "\n";
     std::cout << std::string(68, '-') << "\n";
     
-    for (const auto& config : configs) {
-        bool firstRow = true;
+    for (size_t configIdx = 0; configIdx < configs.size(); ++configIdx) {
+        const auto& config = configs[configIdx];
+        bool firstRowOfConfig = true;
         
         for (const auto& service : config.services) {
             for (const auto& conn : service.connectors) {
                 std::cout << std::left
-                          << std::setw(15) << (firstRow ? config.serverPort : "")
+                          << std::setw(15) << (firstRowOfConfig ? config.serverPort : "")
                           << std::setw(20) << service.name
                           << std::setw(18) << conn.port
                           << std::setw(15) << (conn.redirectPort.empty() ? "-" : conn.redirectPort)
                           << "\n";
-                firstRow = false;
+                firstRowOfConfig = false;
             }
         }
         
@@ -371,6 +380,11 @@ void outputTableMode(const std::vector<ServerConfig>& configs) {
                       << std::setw(18) << "-"
                       << std::setw(15) << "-"
                       << "\n";
+        }
+        
+        // Add separator between configs in table mode for clarity
+        if (configs.size() > 1 && configIdx < configs.size() - 1) {
+            std::cout << std::string(68, '.') << "\n";
         }
     }
 }
@@ -406,6 +420,9 @@ int main(int argc, char* argv[]) {
             }
         } else if (arg[0] != '-') {
             // Not a flag, must be a path
+            if (!pathArg.empty()) {
+                std::cerr << "Warning: Multiple paths specified. Using last one: " << arg << "\n";
+            }
             pathArg = arg;
         } else {
             std::cerr << "Error: Unknown option '" << arg << "'\n";
