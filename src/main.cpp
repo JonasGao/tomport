@@ -95,7 +95,7 @@ void traverseXML(XMLElement* element, std::set<PortInfo>& ports) {
     }
 }
 
-std::vector<std::string> findServerXmlFiles(const std::string& searchPath) {
+std::vector<std::string> findServerXmlFiles(const std::string& searchPath, int maxDepth = 100) {
     std::vector<std::string> xmlFiles;
     
     try {
@@ -114,15 +114,23 @@ std::vector<std::string> findServerXmlFiles(const std::string& searchPath) {
             return xmlFiles;
         }
         
-        // If it's a directory, search recursively
+        // If it's a directory, search recursively with depth limit
         if (fs::is_directory(path)) {
-            for (const auto& entry : fs::recursive_directory_iterator(path, fs::directory_options::skip_permission_denied)) {
+            for (const auto& entry : fs::recursive_directory_iterator(
+                path, 
+                fs::directory_options::skip_permission_denied | fs::directory_options::follow_directory_symlink)) {
                 try {
+                    // Check depth to prevent excessive recursion
+                    int depth = std::distance(path.begin(), entry.path().begin());
+                    if (depth > maxDepth) {
+                        continue;
+                    }
+                    
                     if (entry.is_regular_file() && entry.path().filename() == "server.xml") {
                         xmlFiles.push_back(entry.path().string());
                     }
-                } catch (const fs::filesystem_error&) {
-                    // Skip files we can't access
+                } catch (const fs::filesystem_error& e) {
+                    // Log skipped files in verbose mode (for now, silently skip)
                     continue;
                 }
             }
@@ -180,7 +188,10 @@ int main(int argc, char* argv[]) {
         
         if (xmlFiles.empty()) {
             std::cerr << "Error: No server.xml or conf/server.xml found in current directory.\n";
-            std::cerr << "Run with -h or --help for usage information.\n";
+            std::cerr << "\nSuggestions:\n";
+            std::cerr << "  - Provide a specific file path: " << argv[0] << " /path/to/server.xml\n";
+            std::cerr << "  - Search a directory recursively: " << argv[0] << " /path/to/tomcat\n";
+            std::cerr << "  - Run with -h or --help for more information\n";
             return 1;
         }
         
