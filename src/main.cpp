@@ -2,11 +2,37 @@
 #include <string>
 #include <set>
 #include <vector>
+#include <map>
+#include <iomanip>
 #include <filesystem>
+#include <algorithm>
 #include "tinyxml2.h"
 
 namespace fs = std::filesystem;
 using namespace tinyxml2;
+
+enum class OutputMode {
+    LIST,
+    SIMPLE,
+    TABLE
+};
+
+struct ConnectorInfo {
+    std::string port;
+    std::string protocol;
+    std::string redirectPort;
+};
+
+struct ServiceInfo {
+    std::string name;
+    std::vector<ConnectorInfo> connectors;
+};
+
+struct ServerConfig {
+    std::string filePath;
+    std::string serverPort;
+    std::vector<ServiceInfo> services;
+};
 
 struct PortInfo {
     std::string type;
@@ -21,10 +47,17 @@ struct PortInfo {
 };
 
 void printUsage(const char* programName) {
-    std::cout << "Usage: " << programName << " [path]\n";
+    std::cout << "Usage: " << programName << " [options] [path]\n";
     std::cout << "\nDescription:\n";
     std::cout << "  Parses Apache Tomcat server.xml configuration files and discovers\n";
     std::cout << "  all configured ports (server ports, connector ports, redirect ports).\n";
+    std::cout << "\nOptions:\n";
+    std::cout << "  -m, --mode <mode>  Output mode: list (default), simple, or table\n";
+    std::cout << "  -h, --help         Show this help message\n";
+    std::cout << "\nOutput Modes:\n";
+    std::cout << "  list    Hierarchical tree with file path, server port, services and connectors\n";
+    std::cout << "  simple  Plain minimal output: server port first, then connector ports\n";
+    std::cout << "  table   Formatted table with columns: Server Port, Service, Connector, Redirect\n";
     std::cout << "\nArguments:\n";
     std::cout << "  path    Optional. Can be:\n";
     std::cout << "          - A direct path to a server.xml file\n";
@@ -32,8 +65,8 @@ void printUsage(const char* programName) {
     std::cout << "          - If omitted, searches current directory for server.xml or conf/server.xml\n";
     std::cout << "\nExamples:\n";
     std::cout << "  " << programName << "                                    # Search current directory\n";
-    std::cout << "  " << programName << " server.xml                        # Parse specific file\n";
-    std::cout << "  " << programName << " /path/to/tomcat                   # Search directory recursively\n";
+    std::cout << "  " << programName << " -m simple server.xml              # Simple output mode\n";
+    std::cout << "  " << programName << " --mode table /path/to/tomcat      # Table output mode\n";
     std::cout << "  " << programName << " /path/to/tomcat/conf/server.xml   # Parse specific file\n";
 }
 
@@ -191,12 +224,199 @@ bool parseServerXmlFile(const std::string& xmlFilePath, std::set<PortInfo>& port
     return true;
 }
 
+bool parseServerXmlStructured(const std::string& xmlFilePath, ServerConfig& config) {
+    XMLDocument doc;
+    XMLError error = doc.LoadFile(xmlFilePath.c_str());
+    
+    if (error != XML_SUCCESS) {
+        std::cerr << "Error: Failed to load or parse file '" << xmlFilePath << "'\n";
+        std::cerr << "Error code: " << error << "\n";
+        return false;
+    }
+    
+    XMLElement* root = doc.RootElement();
+    if (!root) {
+        std::cerr << "Error: No root element found in XML file '" << xmlFilePath << "'\n";
+        return false;
+    }
+    
+    config.filePath = xmlFilePath;
+    
+    // Get server port
+    if (std::string(root->Name()) == "Server") {
+        const char* port = root->Attribute("port");
+        if (port) {
+            config.serverPort = port;
+        }
+    }
+    
+    // Parse services
+    for (XMLElement* service = root->FirstChildElement("Service"); service; service = service->NextSiblingElement("Service")) {
+        ServiceInfo serviceInfo;
+        const char* serviceName = service->Attribute("name");
+        serviceInfo.name = serviceName ? serviceName : "Unknown";
+        
+        // Parse connectors
+        for (XMLElement* connector = service->FirstChildElement("Connector"); connector; connector = connector->NextSiblingElement("Connector")) {
+            ConnectorInfo connInfo;
+            const char* port = connector->Attribute("port");
+            const char* protocol = connector->Attribute("protocol");
+            const char* redirectPort = connector->Attribute("redirectPort");
+            
+            if (port) {
+                connInfo.port = port;
+                connInfo.protocol = protocol ? protocol : "Unknown";
+                connInfo.redirectPort = redirectPort ? redirectPort : "";
+                serviceInfo.connectors.push_back(connInfo);
+            }
+        }
+        
+        config.services.push_back(serviceInfo);
+    }
+    
+    return true;
+}
+
+void outputListMode(const std::vector<ServerConfig>& configs) {
+    for (const auto& config : configs) {
+        if (configs.size() > 1) {
+            std::cout << "File: " << config.filePath << "\n";
+            std::cout << std::string(60, '-') << "\n";
+        }
+        
+        if (!config.serverPort.empty()) {
+            std::cout << "Server Port: " << config.serverPort << "\n";
+        }
+        
+        for (const auto& service : config.services) {
+            std::cout << "├─ Service: " << service.name << "\n";
+            
+            for (size_t i = 0; i < service.connectors.size(); ++i) {
+                const auto& conn = service.connectors[i];
+                bool isLast = (i == service.connectors.size() - 1);
+                std::string prefix = isLast ? "   └─" : "   ├─";
+                
+                std::cout << prefix << " Connector Port: " << conn.port 
+                         << " (Protocol: " << conn.protocol << ")";
+                if (!conn.redirectPort.empty()) {
+                    std::cout << " → Redirect: " << conn.redirectPort;
+                }
+                std::cout << "\n";
+            }
+        }
+        
+        if (configs.size() > 1) {
+            std::cout << "\n";
+        }
+    }
+}
+
+void outputSimpleMode(const std::vector<ServerConfig>& configs) {
+    for (const auto& config : configs) {
+        if (configs.size() > 1) {
+            std::cout << "# " << config.filePath << "\n";
+        }
+        
+        // Print server port first
+        if (!config.serverPort.empty()) {
+            std::cout << config.serverPort << "\n";
+        }
+        
+        // Then print connector ports and redirect ports
+        for (const auto& service : config.services) {
+            for (const auto& conn : service.connectors) {
+                std::cout << conn.port << "\n";
+                if (!conn.redirectPort.empty()) {
+                    std::cout << conn.redirectPort << "\n";
+                }
+            }
+        }
+        
+        if (configs.size() > 1) {
+            std::cout << "\n";
+        }
+    }
+}
+
+void outputTableMode(const std::vector<ServerConfig>& configs) {
+    // Header
+    std::cout << std::left 
+              << std::setw(15) << "Server Port"
+              << std::setw(20) << "Service Name"
+              << std::setw(18) << "Connector Port"
+              << std::setw(15) << "Redirect Port"
+              << "\n";
+    std::cout << std::string(68, '-') << "\n";
+    
+    for (const auto& config : configs) {
+        bool firstRow = true;
+        
+        for (const auto& service : config.services) {
+            for (const auto& conn : service.connectors) {
+                std::cout << std::left
+                          << std::setw(15) << (firstRow ? config.serverPort : "")
+                          << std::setw(20) << service.name
+                          << std::setw(18) << conn.port
+                          << std::setw(15) << (conn.redirectPort.empty() ? "-" : conn.redirectPort)
+                          << "\n";
+                firstRow = false;
+            }
+        }
+        
+        // If no services, still show server port
+        if (config.services.empty() && !config.serverPort.empty()) {
+            std::cout << std::left
+                      << std::setw(15) << config.serverPort
+                      << std::setw(20) << "-"
+                      << std::setw(18) << "-"
+                      << std::setw(15) << "-"
+                      << "\n";
+        }
+    }
+}
+
 int main(int argc, char* argv[]) {
     std::vector<std::string> xmlFiles;
+    OutputMode mode = OutputMode::LIST;
+    std::string pathArg;
+    
+    // Parse command-line arguments
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        
+        if (arg == "-h" || arg == "--help") {
+            printUsage(argv[0]);
+            return 0;
+        } else if (arg == "-m" || arg == "--mode") {
+            if (i + 1 < argc) {
+                std::string modeStr = argv[++i];
+                if (modeStr == "list") {
+                    mode = OutputMode::LIST;
+                } else if (modeStr == "simple") {
+                    mode = OutputMode::SIMPLE;
+                } else if (modeStr == "table") {
+                    mode = OutputMode::TABLE;
+                } else {
+                    std::cerr << "Error: Invalid mode '" << modeStr << "'. Use: list, simple, or table\n";
+                    return 1;
+                }
+            } else {
+                std::cerr << "Error: --mode requires an argument\n";
+                return 1;
+            }
+        } else if (arg[0] != '-') {
+            // Not a flag, must be a path
+            pathArg = arg;
+        } else {
+            std::cerr << "Error: Unknown option '" << arg << "'\n";
+            printUsage(argv[0]);
+            return 1;
+        }
+    }
     
     // Determine which files to parse
-    if (argc == 1) {
-        // No arguments - search current directory for server.xml or conf/server.xml
+    if (pathArg.empty()) {
+        // No path argument - search current directory for server.xml or conf/server.xml
         xmlFiles = findServerXmlInCurrentDir();
         
         if (xmlFiles.empty()) {
@@ -208,101 +428,71 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         
-        std::cout << "Found " << xmlFiles.size() << " server.xml file(s) in current directory:\n";
-        for (const auto& file : xmlFiles) {
-            std::cout << "  - " << file << "\n";
+        if (mode == OutputMode::LIST) {
+            std::cout << "Found " << xmlFiles.size() << " server.xml file(s) in current directory:\n";
+            for (const auto& file : xmlFiles) {
+                std::cout << "  - " << file << "\n";
+            }
+            std::cout << "\n";
         }
-        std::cout << "\n";
-    } else if (argc == 2) {
-        std::string arg = argv[1];
-        
-        // Check for help flags
-        if (arg == "-h" || arg == "--help") {
-            printUsage(argv[0]);
-            return 0;
-        }
-        
+    } else {
         // Check if argument is a file or directory
-        if (fs::exists(arg)) {
-            if (fs::is_regular_file(arg)) {
+        if (fs::exists(pathArg)) {
+            if (fs::is_regular_file(pathArg)) {
                 // Direct file path
-                xmlFiles.push_back(arg);
-            } else if (fs::is_directory(arg)) {
+                xmlFiles.push_back(pathArg);
+            } else if (fs::is_directory(pathArg)) {
                 // Directory - search recursively
-                xmlFiles = findServerXmlFiles(arg);
+                xmlFiles = findServerXmlFiles(pathArg);
                 
                 if (xmlFiles.empty()) {
-                    std::cerr << "Error: No server.xml files found in directory '" << arg << "'.\n";
+                    std::cerr << "Error: No server.xml files found in directory '" << pathArg << "'.\n";
                     return 1;
                 }
                 
-                std::cout << "Found " << xmlFiles.size() << " server.xml file(s) in '" << arg << "':\n";
-                for (const auto& file : xmlFiles) {
-                    std::cout << "  - " << file << "\n";
+                if (mode == OutputMode::LIST) {
+                    std::cout << "Found " << xmlFiles.size() << " server.xml file(s) in '" << pathArg << "':\n";
+                    for (const auto& file : xmlFiles) {
+                        std::cout << "  - " << file << "\n";
+                    }
+                    std::cout << "\n";
                 }
-                std::cout << "\n";
             }
         } else {
-            std::cerr << "Error: Path '" << arg << "' does not exist.\n";
+            std::cerr << "Error: Path '" << pathArg << "' does not exist.\n";
             return 1;
         }
-    } else {
-        printUsage(argv[0]);
-        return 1;
     }
     
     // Parse all found XML files
-    std::set<PortInfo> allPorts;
-    int filesProcessed = 0;
+    std::vector<ServerConfig> configs;
     int filesWithErrors = 0;
     
     for (const auto& xmlFile : xmlFiles) {
-        std::set<PortInfo> ports;
-        
-        if (xmlFiles.size() > 1) {
-            std::cout << "Parsing: " << xmlFile << "\n";
-            std::cout << std::string(60, '-') << "\n";
-        }
-        
-        if (parseServerXmlFile(xmlFile, ports)) {
-            filesProcessed++;
-            
-            if (ports.empty()) {
-                std::cout << "No ports found in this configuration file.\n";
-            } else {
-                std::cout << "Tomcat Ports Configuration:\n";
-                std::cout << "===========================\n\n";
-                
-                for (const auto& portInfo : ports) {
-                    std::cout << "Port: " << portInfo.port << "\n";
-                    std::cout << "  Type: " << portInfo.type << "\n";
-                    std::cout << "  Protocol: " << portInfo.protocol << "\n";
-                    std::cout << "\n";
-                    
-                    // Add to all ports collection
-                    allPorts.insert(portInfo);
-                }
-                
-                std::cout << "Total ports in this file: " << ports.size() << "\n";
-            }
+        ServerConfig config;
+        if (parseServerXmlStructured(xmlFile, config)) {
+            configs.push_back(config);
         } else {
             filesWithErrors++;
         }
-        
-        if (xmlFiles.size() > 1) {
-            std::cout << "\n";
-        }
     }
     
-    // Summary if multiple files
-    if (xmlFiles.size() > 1) {
-        std::cout << std::string(60, '=') << "\n";
-        std::cout << "Summary:\n";
-        std::cout << "  Files processed: " << filesProcessed << "/" << xmlFiles.size() << "\n";
-        if (filesWithErrors > 0) {
-            std::cout << "  Files with errors: " << filesWithErrors << "\n";
-        }
-        std::cout << "  Unique ports found across all files: " << allPorts.size() << "\n";
+    // Output based on mode
+    if (configs.empty()) {
+        std::cout << "No valid configuration files found.\n";
+        return 1;
+    }
+    
+    switch (mode) {
+        case OutputMode::LIST:
+            outputListMode(configs);
+            break;
+        case OutputMode::SIMPLE:
+            outputSimpleMode(configs);
+            break;
+        case OutputMode::TABLE:
+            outputTableMode(configs);
+            break;
     }
     
     return filesWithErrors > 0 ? 1 : 0;

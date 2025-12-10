@@ -36,28 +36,54 @@ This will create the `tomport` executable in the `build` directory.
 ## Usage
 
 ```bash
-tomport [path]
+tomport [options] [path]
 ```
+
+### Options
+
+- `-m, --mode <mode>` - Output mode: `list` (default), `simple`, or `table`
+- `-h, --help` - Show help message
+
+### Output Modes
+
+1. **list** (default) - Hierarchical tree view showing:
+   - File path (for multiple files)
+   - Server port
+   - Each service and its connectors with ports and redirect ports
+
+2. **simple** - Plain minimal output:
+   - Server port on first line
+   - Then connector ports
+   - Then redirect ports (if different from connector ports)
+
+3. **table** - Formatted table with columns:
+   - Server Port
+   - Service Name
+   - Connector Port
+   - Redirect Port
+
+### Path Argument
 
 The tool supports three modes of operation:
 
-1. **No arguments**: Automatically searches for `server.xml` or `conf/server.xml` in the current directory
+1. **No path**: Automatically searches for `server.xml` or `conf/server.xml` in the current directory
 2. **File path**: Parse a specific server.xml file
 3. **Directory path**: Recursively search a directory for all server.xml files
 
 ### Examples
 
 ```bash
-# Search current directory for server.xml or conf/server.xml
+# Search current directory (default list mode)
 ./build/tomport
 
-# Parse a specific file
-./build/tomport sample-server.xml
-./build/tomport /opt/tomcat/conf/server.xml
+# Parse a specific file with simple output
+./build/tomport -m simple sample-server.xml
 
-# Recursively search a directory for all server.xml files
-./build/tomport /opt/tomcat
-./build/tomport /var/lib/tomcat-instances
+# Recursively search with table output
+./build/tomport --mode table /opt/tomcat
+
+# Parse specific file with list mode
+./build/tomport /opt/tomcat/conf/server.xml
 
 # Show help
 ./build/tomport --help
@@ -65,70 +91,48 @@ The tool supports three modes of operation:
 
 ### Output Examples
 
-**Single file:**
+#### List Mode (default)
 ```
-Tomcat Ports Configuration:
-===========================
-
-Port: 8005
-  Type: Server
-  Protocol: Shutdown
-
-Port: 8009
-  Type: Connector
-  Protocol: AJP/1.3
-
-Port: 8080
-  Type: Connector
-  Protocol: HTTP/1.1
-
-Port: 8443
-  Type: Redirect
-  Protocol: HTTP/1.1 redirect
-
-Total ports in this file: 4
+Server Port: 8005
+├─ Service: Catalina
+   ├─ Connector Port: 8080 (Protocol: HTTP/1.1) → Redirect: 8443
+   └─ Connector Port: 8009 (Protocol: AJP/1.3) → Redirect: 8443
 ```
 
-**Multiple files (recursive search):**
+#### Simple Mode
+```
+8005
+8080
+8443
+8009
+8443
+```
+
+#### Table Mode
+```
+Server Port    Service Name        Connector Port    Redirect Port  
+--------------------------------------------------------------------
+8005           Catalina            8080              8443           
+               Catalina            8009              8443
+```
+
+#### Multiple Files (List Mode)
 ```
 Found 2 server.xml file(s) in '/opt/tomcat-instances':
   - /opt/tomcat-instances/instance1/conf/server.xml
   - /opt/tomcat-instances/instance2/conf/server.xml
 
-Parsing: /opt/tomcat-instances/instance1/conf/server.xml
+File: /opt/tomcat-instances/instance1/conf/server.xml
 ------------------------------------------------------------
-Tomcat Ports Configuration:
-===========================
+Server Port: 8005
+├─ Service: Catalina
+   └─ Connector Port: 8080 (Protocol: HTTP/1.1) → Redirect: 8443
 
-Port: 8005
-  Type: Server
-  Protocol: Shutdown
-
-Port: 8080
-  Type: Connector
-  Protocol: HTTP/1.1
-
-Total ports in this file: 2
-
-Parsing: /opt/tomcat-instances/instance2/conf/server.xml
+File: /opt/tomcat-instances/instance2/conf/server.xml
 ------------------------------------------------------------
-Tomcat Ports Configuration:
-===========================
-
-Port: 9005
-  Type: Server
-  Protocol: Shutdown
-
-Port: 9080
-  Type: Connector
-  Protocol: HTTP/1.1
-
-Total ports in this file: 2
-
-============================================================
-Summary:
-  Files processed: 2/2
-  Unique ports found across all files: 4
+Server Port: 9005
+├─ Service: App2Service
+   └─ Connector Port: 9080 (Protocol: HTTP/1.1) → Redirect: 9443
 ```
 
 ## Sample Configuration
@@ -139,12 +143,13 @@ A sample `server.xml` file is included in the repository for testing purposes.
 
 The tool uses the TinyXML2 library to parse XML files. It:
 
-1. Loads the specified `server.xml` file
-2. Traverses the XML tree to find:
-   - `<Server>` elements with `port` attributes
-   - `<Connector>` elements with `port` and `redirectPort` attributes
-3. Extracts port numbers and associated protocol information
-4. Displays the results in an organized format
+1. Loads the specified `server.xml` file(s)
+2. Parses the hierarchical structure:
+   - `<Server>` elements with `port` attributes (shutdown port)
+   - `<Service>` elements with `name` attributes
+   - `<Connector>` elements with `port`, `protocol`, and `redirectPort` attributes
+3. Extracts port numbers and associated information
+4. Displays the results in the selected output format (list, simple, or table)
 
 ## CI/CD and Releases
 
