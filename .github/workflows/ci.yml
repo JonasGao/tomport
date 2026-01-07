@@ -26,7 +26,22 @@ jobs:
         cmake ..
         cmake --build .
     
-    - name: Test binary
+    - name: Run unit tests
+      run: |
+        cd build
+        ./tomport_unit_tests
+    
+    - name: Run integration tests
+      run: |
+        cd build
+        ./tomport_integration_tests
+    
+    - name: Run all tests with CTest
+      run: |
+        cd build
+        ctest --output-on-failure
+    
+    - name: Test binary manually
       run: |
         ./build/tomport sample-server.xml
     

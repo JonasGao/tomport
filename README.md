@@ -33,6 +33,22 @@ cmake --build .
 
 This will create the `tomport` executable in the `build` directory.
 
+### Running Tests
+
+The project includes comprehensive unit and integration tests:
+
+```bash
+# Build and run all tests
+cd build
+ctest --output-on-failure
+
+# Or run test executables directly
+./build/tomport_unit_tests
+./build/tomport_integration_tests
+```
+
+See [tests/README.md](tests/README.md) for more details on the test suite.
+
 ## Usage
 
 ```bash
