@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake g++
+    
+    - name: Build project
+      run: |
+        mkdir build
+        cd build
+        cmake ..
+        cmake --build .
+    
+    - name: Run unit tests
+      run: |
+        cd build
+        ./tomport_unit_tests
+    
+    - name: Run integration tests
+      run: |
+        cd build
+        ./tomport_integration_tests
+    
+    - name: Run all tests with CTest
+      run: |
+        cd build
+        ctest --output-on-failure
+    
+    - name: Test binary manually
+      run: |
+        ./build/tomport sample-server.xml
+    
+    - name: Test with invalid file
+      run: |
+        ./build/tomport nonexistent.xml || true
