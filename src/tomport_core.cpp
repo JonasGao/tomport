@@ -1,21 +1,21 @@
 #include "tomport_core.h"
+#include "tinyxml2.h"
 #include <iostream>
 #include <filesystem>
 
 namespace fs = std::filesystem;
-using namespace tinyxml2;
 
 bool parseServerXmlStructured(const std::string& xmlFilePath, ServerConfig& config) {
-    XMLDocument doc;
-    XMLError error = doc.LoadFile(xmlFilePath.c_str());
+    tinyxml2::XMLDocument doc;
+    tinyxml2::XMLError error = doc.LoadFile(xmlFilePath.c_str());
     
-    if (error != XML_SUCCESS) {
+    if (error != tinyxml2::XML_SUCCESS) {
         std::cerr << "Error: Failed to load or parse file '" << xmlFilePath << "'\n";
         std::cerr << "Error code: " << error << "\n";
         return false;
     }
     
-    XMLElement* root = doc.RootElement();
+    tinyxml2::XMLElement* root = doc.RootElement();
     if (!root) {
         std::cerr << "Error: No root element found in XML file '" << xmlFilePath << "'\n";
         return false;
@@ -32,13 +32,13 @@ bool parseServerXmlStructured(const std::string& xmlFilePath, ServerConfig& conf
     }
     
     // Parse services
-    for (XMLElement* service = root->FirstChildElement("Service"); service; service = service->NextSiblingElement("Service")) {
+    for (tinyxml2::XMLElement* service = root->FirstChildElement("Service"); service; service = service->NextSiblingElement("Service")) {
         ServiceInfo serviceInfo;
         const char* serviceName = service->Attribute("name");
         serviceInfo.name = serviceName ? serviceName : "Unknown";
         
         // Parse connectors
-        for (XMLElement* connector = service->FirstChildElement("Connector"); connector; connector = connector->NextSiblingElement("Connector")) {
+        for (tinyxml2::XMLElement* connector = service->FirstChildElement("Connector"); connector; connector = connector->NextSiblingElement("Connector")) {
             ConnectorInfo connInfo;
             const char* port = connector->Attribute("port");
             const char* protocol = connector->Attribute("protocol");

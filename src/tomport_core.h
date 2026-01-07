@@ -5,7 +5,6 @@
 #include <vector>
 #include <set>
 #include <unordered_set>
-#include "tinyxml2.h"
 
 enum class OutputMode {
     LIST,
