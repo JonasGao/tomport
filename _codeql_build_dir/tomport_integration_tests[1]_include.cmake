@@ -1,0 +1,5 @@
+if(EXISTS "/home/runner/work/tomport/tomport/_codeql_build_dir/tomport_integration_tests[1]_tests.cmake")
+  include("/home/runner/work/tomport/tomport/_codeql_build_dir/tomport_integration_tests[1]_tests.cmake")
+else()
+  add_test(tomport_integration_tests_NOT_BUILT tomport_integration_tests_NOT_BUILT)
+endif()
